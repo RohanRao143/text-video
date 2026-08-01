@@ -251,8 +251,9 @@ Narration:
 
     result = generator(
         prompt,
-        max_new_tokens=180,
-        temperature=0.7,
+        max_new_tokens=350,
+        min_new_tokens=250,
+        temperature=0.8,
         do_sample=True,
         clean_up_tokenization_spaces=False,
     )
@@ -297,7 +298,13 @@ def make_images(script):
 
     words = script.split()
 
-    scenes = np.array_split(words, 8)
+    # scenes = np.array_split(words, 16)
+    WORDS_PER_SCENE = 19
+
+    scenes = [
+        words[i:i + WORDS_PER_SCENE]
+        for i in range(0, len(words), WORDS_PER_SCENE)
+    ]
 
     images = []
 
@@ -574,109 +581,65 @@ def moving_image(path, duration):
     )
 
 
-# def make_video(images, audio, subtitles):
+def make_video(images, audio, subtitles):
 
-#     print("Rendering video...")
-
-#     audio_clip = AudioFileClip(audio)
-
-#     scene_duration = audio_clip.duration / len(images)
-
-
-#     clips = [
-#         moving_image(
-#             img,
-#             scene_duration
-#         )
-#         for img in images
-#     ]
-
-#     video = concatenate_videoclips(
-#         clips,
-#         method="compose",
-#     ).set_audio(audio_clip)
-
-
-#     subtitle_clips = []
-
-
-#     for start, end, text in read_srt(subtitles):
-
-#         img = pillow_subtitle_generator(text)
-
-#         clip = (
-#             ImageClip(img)
-#             .set_start(start)
-#             .set_duration(end-start)
-#             .set_position(
-#                 ("center", "bottom")
-#             )
-#         )
-
-#         subtitle_clips.append(clip)
-
-
-
-#     final = CompositeVideoClip(
-#         [
-#             video,
-#             *subtitle_clips,
-#         ]
-#     )
-
-#     output = os.path.join(
-#         ROOT,
-#         "output",
-#         "video.mp4",
-#     )
-
-#     final.write_videofile(
-#         output,
-#         fps=30,
-#         codec="libx264",
-#         audio_codec="aac",
-#         preset="fast",
-#         threads=os.cpu_count(),
-#     )
-
-#     final.close()
-#     video.close()
-#     audio_clip.close()
-
-#     return output
-
-
-def make_video(video_clips, audio, subtitles):
-
-    print("Rendering final video...")
+    print("Rendering video...")
 
     audio_clip = AudioFileClip(audio)
 
+    scene_duration = audio_clip.duration / len(images)
+
+
+    print(f"Audio duration: {audio_clip.duration:.2f}s")
+    print(f"Images: {len(images)}")
+    print(f"Scene duration: {scene_duration:.2f}s")
+    print(f"Expected video: {scene_duration * len(images):.2f}s")
+
     clips = [
-        VideoFileClip(path)
-        for path in video_clips
+        moving_image(
+            img,
+            scene_duration
+        )
+        for img in images
     ]
 
     video = concatenate_videoclips(
         clips,
         method="compose",
-    ).set_audio(audio_clip)
+    )
+    # .set_audio(audio_clip)
+
+    print(video.duration)
+    print(audio_clip.duration)
+
+    video = video.set_duration(audio_clip.duration)
+    video = video.set_audio(audio_clip)
 
     subtitle_clips = []
+
 
     for start, end, text in read_srt(subtitles):
 
         img = pillow_subtitle_generator(text)
 
-        subtitle_clips.append(
+        clip = (
             ImageClip(img)
             .set_start(start)
-            .set_duration(end - start)
-            .set_position(("center", "bottom"))
+            .set_duration(end-start)
+            .set_position(
+                ("center", "bottom")
+            )
         )
 
+        subtitle_clips.append(clip)
+
+
+
     final = CompositeVideoClip(
-        [video, *subtitle_clips]
+        [
+            video,
+            *subtitle_clips,
+        ]
     )
 
     output = os.path.join(
@@ -685,12 +648,16 @@ def make_video(video_clips, audio, subtitles):
         "video.mp4",
     )
 
+    print("Audio:", audio_clip.duration)
+    print("Video:", video.duration)
+    print("Final:", final.duration)
+
     final.write_videofile(
         output,
-        fps=24,
+        fps=30,
         codec="libx264",
         audio_codec="aac",
-        preset="slow",
+        preset="fast",
         threads=os.cpu_count(),
     )
 
@@ -699,7 +666,6 @@ def make_video(video_clips, audio, subtitles):
     audio_clip.close()
 
     return output
-
 
 
 ##############################################################
@@ -848,15 +814,15 @@ def generate_batch(topics):
 
         images = make_images(script)
 
-        video_clips = make_videoclips(images)
+        # video_clips = make_videoclips(images)
 
         audio = make_audio(script)
 
         subtitles = make_subtitles(audio)
 
         video = make_video(
-            # images,
-            video_clips,
+            images,
+            # video_clips,
             audio,
             subtitles,
         )
@@ -922,3 +888,76 @@ Artificial Intelligence""",
 )
 
 demo.launch()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def make_video(video_clips, audio, subtitles):
+
+#     print("Rendering final video...")
+
+#     audio_clip = AudioFileClip(audio)
+
+#     clips = [
+#         VideoFileClip(path)
+#         for path in video_clips
+#     ]
+
+#     video = concatenate_videoclips(
+#         clips,
+#         method="compose",
+#     ).set_audio(audio_clip)
+
+#     subtitle_clips = []
+
+#     for start, end, text in read_srt(subtitles):
+
+#         img = pillow_subtitle_generator(text)
+
+#         subtitle_clips.append(
+#             ImageClip(img)
+#             .set_start(start)
+#             .set_duration(end - start)
+#             .set_position(("center", "bottom"))
+#         )
+
+#     final = CompositeVideoClip(
+#         [video, *subtitle_clips]
+#     )
+
+#     output = os.path.join(
+#         ROOT,
+#         "output",
+#         "video.mp4",
+#     )
+
+#     final.write_videofile(
+#         output,
+#         fps=24,
+#         codec="libx264",
+#         audio_codec="aac",
+#         preset="slow",
+#         threads=os.cpu_count(),
+#     )
+
+#     final.close()
+#     video.close()
+#     audio_clip.close()
+
+#     return output
+
+
+
+
+
