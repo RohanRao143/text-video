@@ -890,7 +890,96 @@ Artificial Intelligence""",
 demo.launch()
 
 
+def make_images_v2(script):
+    # Split script into 8 scenes
+    words = script.split()
+    scenes = np.array_split(words, 8)
+    
+    # Generate start and end images for each scene
+    print("Generating images...")
+    pipe = get_sdxl()
+    
+    start_images = []
+    end_images = []
 
+    for i, scene in enumerate(scenes):
+        text_start = " ".join(scene[:-1])
+        text_end = " ".join(scene[1:])
+        
+        prompt_start = f"""
+        A cinematic documentary shot.
+        Topic: {text_start}
+
+        Style:
+        - realistic photography
+        - dramatic lighting
+        - shallow depth of field
+        - high detail
+        - 16:9 composition
+        - no text
+        """
+        
+        img_start = pipe(
+            prompt_start,
+            num_inference_steps=6,
+            guidance_scale=0,
+            width=1024,
+            height=576,
+        ).images[0]
+
+        start_images.append(img_start)
+        
+        prompt_end = f"""
+        A cinematic documentary shot.
+        Topic: {text_end}
+
+        Style:
+        - realistic photography
+        - dramatic lighting
+        - shallow depth of field
+        - high detail
+        - 16:9 composition
+        - no text
+        """
+        
+        img_end = pipe(
+            prompt_end,
+            num_inference_steps=6,
+            guidance_scale=0,
+            width=1024,
+            height=576,
+        ).images[0]
+
+        end_images.append(img_end)
+    
+    return start_images, end_images
+
+def make_video_v2(start_images, end_images, audio):
+    print("Rendering video...")
+    
+    duration = AudioFileClip(audio).duration
+    num_scenes = len(start_images)
+    
+    segment_duration = duration / (2 * num_scenes)  # Two clips per scene
+    
+    clips = []
+    
+    for i in range(num_scenes):
+        start_frame = int(i * segment_duration * 30)
+        end_frame = int((i + 1) * segment_duration * 30)
+        
+        clip_start = ImageClip(start_images[i]).set_duration(segment_duration / 2).crop(width=1280, height=720)
+        clip_end = ImageClip(end_images[i]).set_duration(segment_duration / 2).crop(width=1280, height=720)
+
+        clips.append(clip_start)
+        clips.append(concatenate_videoclips([clip_start, clip_end], method="compose"))
+    
+    video = concatenate_videoclips(clips)
+
+    output_path = os.path.join(ROOT, "output", f"video_{2*num_scenes}.mp4")
+    video.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac", preset="fast", threads=os.cpu_count())
+    
+    return output_path
 
 
 
