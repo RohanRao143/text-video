@@ -778,8 +778,8 @@ def generate_batch(topics):
 
         print(f"\nVideo {i}/{len(topics)}")
 
-        # images = make_images(script)
-        start_images, end_images = make_images_v2(script)
+        images = make_images(script)
+        # start_images, end_images = make_images_v2(script)
 
         # video_clips = make_videoclips(images)
 
@@ -787,7 +787,9 @@ def generate_batch(topics):
 
         subtitles = make_subtitles(audio)
     
-        video = make_video_v2(start_images, end_images, audio)
+        # video = make_video_v2(start_images, end_images, audio)
+
+        video = make_video_single_shot(start_images, audio)
 
         # video = make_video(
         #     images,
@@ -957,11 +959,15 @@ def make_images_v2(script):
 
 def get_sdxl_itoc():
     global sdxl
-    # Load model
-    # Load a low-end stable diffusion model (e.g., "CompVis/ldksd-v1")
-    sdxl = DiffusionPipeline.from_pretrained("path_to_stable_diffusion_model")
-    
-    return sdxl
+
+    if sdxl is None:
+        # Load model
+        # Load a low-end stable diffusion model (e.g., "CompVis/ldksd-v1")
+        sdxl = DiffusionPipeline.from_pretrained("path_to_stable_diffusion_model")
+        
+        return sdxl
+    else:
+        return sdxl
 
 # Usage
 # sdxl_model = get_sdxl()
@@ -1019,6 +1025,51 @@ def generate_midpoint_image(start_image_path, end_image_path):
     return pipe
 
 
+
+def make_video_single_shot(images, audio):
+    print("Rendering video...")
+
+    duration = AudioFileClip(audio).duration
+    num_scenes = len(images)
+
+    segment_duration = duration / num_scenes
+
+    clips = []
+
+    for i in range(num_scenes):
+        start_frame = int(i * segment_duration * 30)
+        end_frame = int((i + 1) * segment_duration * 30)
+
+        # Generate scene image using sdxl_model
+        mid_img = generate_scene_image(images[i])
+        
+        clip = ImageClip(mid_img).set_duration(segment_duration).crop(width=1280, height=720)
+
+        clips.append(clip)
+
+    video = concatenate_videoclips(clips)
+
+    output_path = os.path.join(ROOT, "output", f"video_{num_scenes}.mp4")
+    video.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac", preset="fast", threads=os.cpu_count())
+
+    return output_path
+
+def generate_scene_image(image_path):
+    # Load models
+    sdxl_model = get_sdxl_itoc()
+    
+    # Generate scene image using a single input
+    scene_image = Image.open(image_path)
+
+    pipe = sdxl_model(
+        f"A low-end model generated scene. For the input image: {scene_image}. ",
+        num_inference_steps=3,
+        guidance_scale=0,
+        width=1024,
+        height=576,
+    ).images[0]
+
+    return pipe
 
 
 
