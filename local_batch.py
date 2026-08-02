@@ -11,7 +11,7 @@ from transformers import (
     pipeline,
 )
 
-from diffusers import AutoPipelineForText2Image
+from diffusers import AutoPipelineForText2Image, DiffusionPipeline, StableDiffusionPipeline, StableVideoDiffusionPipeline
 
 from kokoro import KPipeline
 import soundfile as sf
@@ -251,8 +251,8 @@ Narration:
 
     result = generator(
         prompt,
-        max_new_tokens=350,
-        min_new_tokens=250,
+        max_new_tokens=200,
+        min_new_tokens=120,
         temperature=0.8,
         do_sample=True,
         clean_up_tokenization_spaces=False,
@@ -307,10 +307,13 @@ def make_images(script):
     ]
 
     images = []
+    
+    prompts = []
 
     for i, scene in enumerate(scenes):
 
         text = " ".join(scene)
+        prompts.append(text)
 
         prompt = f"""
         A cinematic documentary shot.
@@ -343,7 +346,7 @@ def make_images(script):
 
         images.append(path)
 
-    return images
+    return images, prompts
 
 def make_subtitles(audio_path):
 
@@ -634,6 +637,392 @@ def make_video(images, audio, subtitles):
     return output
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def make_images_v2(script):
+    # Split script into 8 scenes
+    words = script.split()
+    scenes = np.array_split(words, 8)
+    
+    # Generate start and end images for each scene
+    print("Generating images...")
+    pipe = get_sdxl()
+    
+    start_images = []
+    end_images = []
+
+    for i, scene in enumerate(scenes):
+        text_start = " ".join(scene[:-1])
+        text_end = " ".join(scene[1:])
+        
+        prompt_start = f"""
+        A cinematic documentary shot.
+        Topic: {text_start}
+
+        Style:
+        - realistic photography
+        - dramatic lighting
+        - shallow depth of field
+        - high detail
+        - 16:9 composition
+        - no text
+        """
+        
+        img_start = pipe(
+            prompt_start,
+            num_inference_steps=6,
+            guidance_scale=0,
+            width=1024,
+            height=576,
+        ).images[0]
+
+        start_images.append(img_start)
+        
+        prompt_end = f"""
+        A cinematic documentary shot.
+        Topic: {text_end}
+
+        Style:
+        - realistic photography
+        - dramatic lighting
+        - shallow depth of field
+        - high detail
+        - 16:9 composition
+        - no text
+        """
+        
+        img_end = pipe(
+            prompt_end,
+            num_inference_steps=6,
+            guidance_scale=0,
+            width=1024,
+            height=576,
+        ).images[0]
+
+        end_images.append(img_end)
+    
+    return start_images, end_images
+
+# def make_video_v2(start_images, end_images, audio):
+#     print("Rendering video...")
+    
+#     duration = AudioFileClip(audio).duration
+#     num_scenes = len(start_images)
+    
+#     segment_duration = duration / (2 * num_scenes)  # Two clips per scene
+    
+#     clips = []
+    
+#     for i in range(num_scenes):
+#         start_frame = int(i * segment_duration * 30)
+#         end_frame = int((i + 1) * segment_duration * 30)
+        
+#         clip_start = ImageClip(start_images[i]).set_duration(segment_duration / 2).crop(width=1280, height=720)
+#         clip_end = ImageClip(end_images[i]).set_duration(segment_duration / 2).crop(width=1280, height=720)
+
+#         clips.append(clip_start)
+#         clips.append(concatenate_videoclips([clip_start, clip_end], method="compose"))
+    
+#     video = concatenate_videoclips(clips)
+
+#     output_path = os.path.join(ROOT, "output", f"video_{2*num_scenes}.mp4")
+#     video.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac", preset="fast", threads=os.cpu_count())
+    
+#     return output_path
+
+# def get_sdxl_itoc():
+#     global sdxl
+
+#     if sdxl is None:
+#         # Load model
+#         # Load a low-end stable diffusion model (e.g., "CompVis/ldksd-v1")
+#         # sdxl = DiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4")
+#         # sdxl = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4", torch_dtype=torch.float16)
+#         # # 2. MANDATORY FOR 4GB: Smart memory management
+#         # # This keeps components in CPU RAM and only loads them to GPU VRAM when execution hits them
+#         # sdxl.enable_model_cpu_offload()
+
+#         # # This breaks down the heavy attention matrix operations into tiny chunks
+#         # sdxl.enable_attention_slicing(slice_size="auto")
+
+
+
+#         sdxl = StableVideoDiffusionPipeline.from_pretrained(
+#             "stabilityai/stable-video-diffusion-img2vid-xt",
+#             torch_dtype=torch.float16,
+#             variant="fp16"
+#         )
+
+#         # CRITICAL FOR 4GB CARDS: Aggressive memory offloading
+#         sdxl.enable_model_cpu_offload()
+#         sdxl.enable_attention_slicing(slice_size="auto")
+
+#         # Enable VAE tiling to decode video frames in small segments
+#         sdxl.enable_vae_tiling()
+#         return sdxl # This is a placeholder for the actual implementation   
+#     else:
+#         return sdxl
+
+# Usage
+# sdxl_model = get_sdxl()
+
+# midpoint_image = generate_midpoint_image(start_image_path, end_image_path)
+
+def make_video_v2(start_images, end_images, audio):
+    print("Rendering video...")
+
+    duration = AudioFileClip(audio).duration
+    num_scenes = len(start_images)
+
+    segment_duration = duration / num_scenes
+
+    clips = []
+
+    for i in range(num_scenes):
+        start_frame = int(i * segment_duration * 30)
+        end_frame = int((i + 1) * segment_duration * 30)
+
+        # Generate midpoint image between start and end images
+        mid_img = generate_midpoint_image(start_images[i], end_images[i])
+
+        clip = ImageClip(mid_img).set_duration(segment_duration)
+
+        clips.append(clip)
+
+    video = concatenate_videoclips(clips)
+
+    output_path = os.path.join(ROOT, "output", f"video_{num_scenes}.mp4")
+    video.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac", preset="fast", threads=os.cpu_count())
+
+    return output_path
+
+
+def generate_midpoint_image(start_image_path, end_image_path):
+    # Load models
+    sdxl_model = get_sdxl_itoc()
+
+    # Generate midpoint image
+    start_image = Image.open(start_image_path)
+    end_image = Image.open(end_image_path)
+
+    midpoint_image = Image.new('RGB', (1024, 576))
+
+    pipe = sdxl_model(
+        f"A low-end model generated scene. Blend {start_image} and {end_image}. "
+        f"Style: realistic photography, high detail, 16:9 composition",
+        num_inference_steps=3,
+        guidance_scale=0,
+        width=1024,
+        height=576,
+    ).images[0]
+
+    return pipe
+
+
+
+def get_sdxl_itoc():
+    global sdxl
+
+    if sdxl is None:
+        sdxl = StableVideoDiffusionPipeline.from_pretrained(
+            "stabilityai/stable-video-diffusion-img2vid-xt",
+            torch_dtype=torch.float16,
+            variant="fp16"
+        )
+
+        # CRITICAL FOR 4GB CARDS: Aggressive memory offloading
+        sdxl.enable_model_cpu_offload()
+        sdxl.enable_attention_slicing(slice_size="auto")
+
+        # Enable VAE tiling to decode video frames in small segments
+        # sdxl.enable_vae_tiling()
+        
+        # ADDED: Splitting the VAE decoding loop cuts the last bit of extra VRAM usage
+        # sdxl.enable_vae_slicing() 
+        
+    return sdxl
+
+def generate_scene_image(image_path, prompt):
+    sdxl_model = get_sdxl_itoc()
+    
+    # Load and resize the source image to a 4GB-safe resolution
+    scene_image = Image.open(image_path).convert("RGB").resize((512, 512))
+
+    # Run the model
+    output_frames = sdxl_model(
+        image=scene_image,          # Correct argument
+        num_inference_steps=4,      # Kept low for speed on 3050
+        decode_chunk_size=1,        # CRITICAL: Decodes 1 frame at a time to prevent 4GB crash
+        motion_bucket_id=40,        # Lower values reduce extreme pixel warping
+        width=512,                  # MAX resolution for 4GB VRAM video pipelines
+        height=512,
+    ).frames 
+
+    # FIX: .frames is a list of lists [[Image1, Image2, ...]]
+    # This correctly targets the first frame of the first batch
+    first_frame = output_frames[0][0] 
+
+    return first_frame
+
+def make_video_single_shot(images, prompts, audio):
+    print("Rendering video...")
+
+    duration = AudioFileClip(audio).duration
+    num_scenes = len(images)
+    segment_duration = duration / num_scenes
+
+    clips = []
+
+    for i in range(num_scenes):
+        start_frame = int(i * segment_duration * 30)
+        end_frame = int((i + 1) * segment_duration * 30)
+
+        # Generate scene image using sdxl_model (Returns a single PIL Image)
+        mid_img = generate_scene_image(images[i], prompts[i])
+        
+        # Safely scales up the 512x512 output using CPU RAM instead of VRAM
+        clip = (ImageClip(mid_img)
+                .set_duration(segment_duration)
+                .resize(newsize=(1280, 720)))
+
+        clips.append(clip)
+
+    video = concatenate_videoclips(clips)
+    video = video.set_audio(AudioFileClip(audio)) 
+    
+    output_dir = os.path.join(ROOT, "output")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"video_{num_scenes}.mp4")
+    
+    video.write_videofile(
+        output_path, 
+        fps=30, 
+        codec="libx264", 
+        audio_codec="aac", 
+        preset="fast", 
+        threads=os.cpu_count()
+    )
+
+    return output_path
+
+
+
+
+# def make_video(video_clips, audio, subtitles):
+
+#     print("Rendering final video...")
+
+#     audio_clip = AudioFileClip(audio)
+
+#     clips = [
+#         VideoFileClip(path)
+#         for path in video_clips
+#     ]
+
+#     video = concatenate_videoclips(
+#         clips,
+#         method="compose",
+#     ).set_audio(audio_clip)
+
+#     subtitle_clips = []
+
+#     for start, end, text in read_srt(subtitles):
+
+#         img = pillow_subtitle_generator(text)
+
+#         subtitle_clips.append(
+#             ImageClip(img)
+#             .set_start(start)
+#             .set_duration(end - start)
+#             .set_position(("center", "bottom"))
+#         )
+
+#     final = CompositeVideoClip(
+#         [video, *subtitle_clips]
+#     )
+
+#     output = os.path.join(
+#         ROOT,
+#         "output",
+#         "video.mp4",
+#     )
+
+#     final.write_videofile(
+#         output,
+#         fps=24,
+#         codec="libx264",
+#         audio_codec="aac",
+#         preset="slow",
+#         threads=os.cpu_count(),
+#     )
+
+#     final.close()
+#     video.close()
+#     audio_clip.close()
+
+#     return output
+
+
+
+
+
+
+
+def make_videoclips(images, fps=16):
+
+    print("Generating cinematic video clips...")
+
+    pipe = get_svd()
+
+    clips = []
+
+    for i, image_path in enumerate(images):
+
+        image = Image.open(image_path).convert("RGB")
+
+        frames = pipe(
+            image,
+            decode_chunk_size=8,
+        ).frames[0]
+
+        output = os.path.join(
+            ROOT,
+            "clips",
+            f"{i}.mp4",
+        )
+
+        export_to_video(
+            frames,
+            output,
+            fps=fps,
+        )
+
+        clips.append(output)
+
+    return clips
+
+
+
+
+
+
+
+
+
 ##############################################################
 
 def unload_llm():
@@ -778,7 +1167,7 @@ def generate_batch(topics):
 
         print(f"\nVideo {i}/{len(topics)}")
 
-        images = make_images(script)
+        images, prompts = make_images(script)
         # start_images, end_images = make_images_v2(script)
 
         # video_clips = make_videoclips(images)
@@ -789,7 +1178,7 @@ def generate_batch(topics):
     
         # video = make_video_v2(start_images, end_images, audio)
 
-        video = make_video_single_shot(start_images, audio)
+        video = make_video_single_shot(images, prompts, audio)
 
         # video = make_video(
         #     images,
@@ -864,304 +1253,3 @@ demo.launch()
 
 
 
-
-
-def make_images_v2(script):
-    # Split script into 8 scenes
-    words = script.split()
-    scenes = np.array_split(words, 8)
-    
-    # Generate start and end images for each scene
-    print("Generating images...")
-    pipe = get_sdxl()
-    
-    start_images = []
-    end_images = []
-
-    for i, scene in enumerate(scenes):
-        text_start = " ".join(scene[:-1])
-        text_end = " ".join(scene[1:])
-        
-        prompt_start = f"""
-        A cinematic documentary shot.
-        Topic: {text_start}
-
-        Style:
-        - realistic photography
-        - dramatic lighting
-        - shallow depth of field
-        - high detail
-        - 16:9 composition
-        - no text
-        """
-        
-        img_start = pipe(
-            prompt_start,
-            num_inference_steps=6,
-            guidance_scale=0,
-            width=1024,
-            height=576,
-        ).images[0]
-
-        start_images.append(img_start)
-        
-        prompt_end = f"""
-        A cinematic documentary shot.
-        Topic: {text_end}
-
-        Style:
-        - realistic photography
-        - dramatic lighting
-        - shallow depth of field
-        - high detail
-        - 16:9 composition
-        - no text
-        """
-        
-        img_end = pipe(
-            prompt_end,
-            num_inference_steps=6,
-            guidance_scale=0,
-            width=1024,
-            height=576,
-        ).images[0]
-
-        end_images.append(img_end)
-    
-    return start_images, end_images
-
-# def make_video_v2(start_images, end_images, audio):
-#     print("Rendering video...")
-    
-#     duration = AudioFileClip(audio).duration
-#     num_scenes = len(start_images)
-    
-#     segment_duration = duration / (2 * num_scenes)  # Two clips per scene
-    
-#     clips = []
-    
-#     for i in range(num_scenes):
-#         start_frame = int(i * segment_duration * 30)
-#         end_frame = int((i + 1) * segment_duration * 30)
-        
-#         clip_start = ImageClip(start_images[i]).set_duration(segment_duration / 2).crop(width=1280, height=720)
-#         clip_end = ImageClip(end_images[i]).set_duration(segment_duration / 2).crop(width=1280, height=720)
-
-#         clips.append(clip_start)
-#         clips.append(concatenate_videoclips([clip_start, clip_end], method="compose"))
-    
-#     video = concatenate_videoclips(clips)
-
-#     output_path = os.path.join(ROOT, "output", f"video_{2*num_scenes}.mp4")
-#     video.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac", preset="fast", threads=os.cpu_count())
-    
-#     return output_path
-
-def get_sdxl_itoc():
-    global sdxl
-
-    if sdxl is None:
-        # Load model
-        # Load a low-end stable diffusion model (e.g., "CompVis/ldksd-v1")
-        sdxl = DiffusionPipeline.from_pretrained("path_to_stable_diffusion_model")
-        
-        return sdxl
-    else:
-        return sdxl
-
-# Usage
-# sdxl_model = get_sdxl()
-
-# midpoint_image = generate_midpoint_image(start_image_path, end_image_path)
-
-def make_video_v2(start_images, end_images, audio):
-    print("Rendering video...")
-
-    duration = AudioFileClip(audio).duration
-    num_scenes = len(start_images)
-
-    segment_duration = duration / num_scenes
-
-    clips = []
-
-    for i in range(num_scenes):
-        start_frame = int(i * segment_duration * 30)
-        end_frame = int((i + 1) * segment_duration * 30)
-
-        # Generate midpoint image between start and end images
-        mid_img = generate_midpoint_image(start_images[i], end_images[i])
-
-        clip = ImageClip(mid_img).set_duration(segment_duration)
-
-        clips.append(clip)
-
-    video = concatenate_videoclips(clips)
-
-    output_path = os.path.join(ROOT, "output", f"video_{num_scenes}.mp4")
-    video.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac", preset="fast", threads=os.cpu_count())
-
-    return output_path
-
-
-def generate_midpoint_image(start_image_path, end_image_path):
-    # Load models
-    sdxl_model = get_sdxl_itoc()
-
-    # Generate midpoint image
-    start_image = Image.open(start_image_path)
-    end_image = Image.open(end_image_path)
-
-    midpoint_image = Image.new('RGB', (1024, 576))
-
-    pipe = sdxl_model(
-        f"A low-end model generated scene. Blend {start_image} and {end_image}. "
-        f"Style: realistic photography, high detail, 16:9 composition",
-        num_inference_steps=3,
-        guidance_scale=0,
-        width=1024,
-        height=576,
-    ).images[0]
-
-    return pipe
-
-
-
-def make_video_single_shot(images, audio):
-    print("Rendering video...")
-
-    duration = AudioFileClip(audio).duration
-    num_scenes = len(images)
-
-    segment_duration = duration / num_scenes
-
-    clips = []
-
-    for i in range(num_scenes):
-        start_frame = int(i * segment_duration * 30)
-        end_frame = int((i + 1) * segment_duration * 30)
-
-        # Generate scene image using sdxl_model
-        mid_img = generate_scene_image(images[i])
-        
-        clip = ImageClip(mid_img).set_duration(segment_duration).crop(width=1280, height=720)
-
-        clips.append(clip)
-
-    video = concatenate_videoclips(clips)
-
-    output_path = os.path.join(ROOT, "output", f"video_{num_scenes}.mp4")
-    video.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac", preset="fast", threads=os.cpu_count())
-
-    return output_path
-
-def generate_scene_image(image_path):
-    # Load models
-    sdxl_model = get_sdxl_itoc()
-    
-    # Generate scene image using a single input
-    scene_image = Image.open(image_path)
-
-    pipe = sdxl_model(
-        f"A low-end model generated scene. For the input image: {scene_image}. ",
-        num_inference_steps=3,
-        guidance_scale=0,
-        width=1024,
-        height=576,
-    ).images[0]
-
-    return pipe
-
-
-
-# def make_video(video_clips, audio, subtitles):
-
-#     print("Rendering final video...")
-
-#     audio_clip = AudioFileClip(audio)
-
-#     clips = [
-#         VideoFileClip(path)
-#         for path in video_clips
-#     ]
-
-#     video = concatenate_videoclips(
-#         clips,
-#         method="compose",
-#     ).set_audio(audio_clip)
-
-#     subtitle_clips = []
-
-#     for start, end, text in read_srt(subtitles):
-
-#         img = pillow_subtitle_generator(text)
-
-#         subtitle_clips.append(
-#             ImageClip(img)
-#             .set_start(start)
-#             .set_duration(end - start)
-#             .set_position(("center", "bottom"))
-#         )
-
-#     final = CompositeVideoClip(
-#         [video, *subtitle_clips]
-#     )
-
-#     output = os.path.join(
-#         ROOT,
-#         "output",
-#         "video.mp4",
-#     )
-
-#     final.write_videofile(
-#         output,
-#         fps=24,
-#         codec="libx264",
-#         audio_codec="aac",
-#         preset="slow",
-#         threads=os.cpu_count(),
-#     )
-
-#     final.close()
-#     video.close()
-#     audio_clip.close()
-
-#     return output
-
-
-
-
-
-
-
-def make_videoclips(images, fps=16):
-
-    print("Generating cinematic video clips...")
-
-    pipe = get_svd()
-
-    clips = []
-
-    for i, image_path in enumerate(images):
-
-        image = Image.open(image_path).convert("RGB")
-
-        frames = pipe(
-            image,
-            decode_chunk_size=8,
-        ).frames[0]
-
-        output = os.path.join(
-            ROOT,
-            "clips",
-            f"{i}.mp4",
-        )
-
-        export_to_video(
-            frames,
-            output,
-            fps=fps,
-        )
-
-        clips.append(output)
-
-    return clips
